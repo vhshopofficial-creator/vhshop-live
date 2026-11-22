@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="km">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VH SHOP · Prep</title>
+<!--
+  VH SHOP Prep page (v1).
+  The admin saves, per product code: photos (one per colour is best, one is fine), price, label,
+  and a name for each photo (colour or size). Codes saved here show as picture cards on the stream;
+  codes not saved here show as text cards (txt data + Vrich stock).
+
+  Data: Firebase project vhm-catalog, collection kv — ONLY these keys (never touches VHM's live_* keys):
+    kv/vhshop_code:{CODE}       { code, price, desc, prefix, rows, photos:[{id,v}], status, updatedAt }
+    kv/vhshop_img:{CODE}:{id}   { img:'data:image/jpeg;base64,…' }   one doc per photo (~40 KB)
+    kv/vhshop_index             { codes: { CODE: {price, desc, n, status, thumb, updatedAt} } }
+    kv/vhshop_settings          read only here (overlay design for the preview)
+  Same document shape as VHM: fields.data = JSON string, fields.updatedAt = timestamp.
+
+  ?demo=1   practice mode: nothing is sent to Firebase, data stays in this tab only.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kantumruy+Pro:wght@400;600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#161214; --card:#221B1F; --line:#3A2F35; --line2:#4A3C43; --field:#120E10; --text:#FFFFFF; --sub:#BDB0B6;
+    --text2:#EDE4E8; --chip:#2B2227; --acc:#F08DB0; --price:#E8C98F; --btn:#8A2F52;
+    --warnBg:#4A3A12; --warnText:#FFD98A; --okBg:#1F3A2C; --okText:#B6F0CF; --badBg:#4A1F22; --badText:#FFB4B4;
+  }
+  body.day{
+    --bg:#F4EEF0; --card:#FFFFFF; --line:#E3D6DB; --line2:#CDBCC3; --field:#FBF8F9; --text:#22161B; --sub:#6E5A63;
+    --text2:#3A2A31; --chip:#F4E8EC; --acc:#A8365F; --price:#8A5A00; --btn:#8A2F52;
+    --warnBg:#FFF1CC; --warnText:#6B4300; --okBg:#E2F3E8; --okText:#1E5A3A; --badBg:#FDE2E2; --badText:#8A1F1F;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--text);font-family:'Kantumruy Pro','Noto Sans Khmer','Khmer OS',system-ui,sans-serif;min-height:100vh}
+  button,input{font-family:inherit}
+  button{cursor:pointer}
+  input:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+  .num{font-family:Poppins,sans-serif}
+  .wrap{max-width:1320px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+  .bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 16px}
+  .brand{font-family:Poppins,sans-serif;font-weight:700;font-size:22px;letter-spacing:.04em;color:var(--acc)}
+  .title{font-size:18px;font-weight:600}
+  .conn{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--sub)}
+  .dot{width:10px;height:10px;border-radius:5px;background:#888;display:inline-block}
+  .dot.ok{background:#5FD39A}.dot.bad{background:#E5484D}.dot.demo{background:#FFC94D}
+  .sp{margin-left:auto}
+  .seg{height:40px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--text2);font-size:14px;font-weight:600;padding:0 14px}
+  .seg.on{background:var(--btn);border-color:var(--btn);color:#fff;font-weight:700}
+  .msg{border-radius:10px;padding:9px 14px;font-size:15px;display:none}
+  .msg.ok{display:block;background:var(--okBg);color:var(--okText)}
+  .msg.warn{display:block;background:var(--warnBg);color:var(--warnText)}
+  .msg.bad{display:block;background:var(--badBg);color:var(--badText)}
+  .grid2{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  .main{flex:999 1 640px;min-width:0;display:flex;flex-direction:column;gap:14px}
+  .side{flex:1 1 360px;min-width:0;max-width:440px;display:flex;flex-direction:column;gap:14px}
+  .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .lbl{font-size:13px;color:var(--sub);display:flex;flex-direction:column;gap:4px}
+  .h{font-size:16px;font-weight:700}
+  .hint{font-size:13px;color:var(--sub)}
+  .in{height:44px;border-radius:8px;border:1px solid var(--line2);background:var(--field);color:var(--text);font-size:17px;padding:0 12px;min-width:0}
+  #code{width:190px;height:52px;font-family:Poppins,sans-serif;font-size:24px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+  #price{width:120px;font-family:Poppins,sans-serif;font-size:22px;font-weight:700;color:var(--price)}
+  #desc{width:100%}
+  .txtbox{display:none;align-items:center;gap:10px;background:var(--okBg);color:var(--okText);border-radius:10px;padding:6px 8px 6px 12px;font-size:14px;max-width:100%}
+  .txtbox.show{display:flex}
+  .txtbox button{height:38px;border:0;border-radius:8px;background:#2E8B5E;color:#fff;font-size:14px;font-weight:700;padding:0 14px;flex:none}
+  .tag{font-size:13px;font-weight:700;border-radius:999px;padding:3px 12px;white-space:nowrap}
+  .st-ready{background:var(--okBg);color:var(--okText)}
+  .st-need{background:var(--warnBg);color:var(--warnText)}
+  .st-none{background:var(--chip);color:var(--text)}
+  .photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .ph{display:flex;flex-direction:column;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:6px}
+  .ph.drag{opacity:.4}.ph.over{outline:2px dashed var(--acc)}
+  .ph .pic{position:relative}
+  .ph img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:8px;background:#fff;display:block;cursor:grab}
+  .ph .n{position:absolute;left:6px;top:6px;font-family:Poppins,sans-serif;font-size:12px;font-weight:700;background:rgba(0,0,0,.6);color:#fff;border-radius:6px;padding:1px 6px}
+  .ph .new{position:absolute;right:6px;top:6px;font-size:11px;font-weight:700;background:var(--btn);color:#fff;border-radius:6px;padding:1px 6px}
+  .ph input{height:38px;font-size:15px}
+  .ph .btns{display:flex;gap:4px}
+  .ph .btns button{flex:1;height:34px;border-radius:6px;border:1px solid var(--line2);background:transparent;color:var(--sub);font-size:14px}
+  .ph .btns button.x{border-color:#8a3a3a;color:#E5484D}
+  .drop{display:flex;flex-direction:column;gap:6px;justify-content:center;border:2px dashed #8a5a6e;border-radius:10px;padding:10px;min-height:200px;text-align:center}
+  .drop.over{background:rgba(240,141,176,.12)}
+  .drop .big{font-size:14px;color:var(--text2)}
+  .drop label{height:38px;border-radius:8px;background:var(--btn);color:#fff;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .chip{height:36px;border-radius:999px;border:1px solid var(--acc);background:transparent;color:var(--text);font-size:15px;padding:0 14px}
+  .chip.used{border-color:var(--line);background:var(--chip);color:var(--sub);text-decoration:line-through}
+  .actions{display:flex;gap:10px;flex-wrap:wrap}
+  .bigbtn{display:flex;align-items:center;justify-content:center;height:54px;border-radius:12px;font-size:17px;font-weight:700;padding:0 24px;border:1px solid var(--btn);background:transparent;color:var(--text)}
+  .bigbtn.main{background:var(--btn);color:#fff;flex:1 1 220px;border:0}
+  .bigbtn.ghost{border-color:var(--line2);color:var(--sub);font-size:15px}
+  .bigbtn.del{border-color:#8a3a3a;color:#E5484D;font-size:15px}
+  .bigbtn:disabled{opacity:.55;cursor:wait}
+  /* preview card (picture card on stream) */
+  .pv{height:190px;border-radius:20px;border:2.5px solid var(--pvFrame);background:var(--pvBg);display:flex;gap:14px;padding:10px;color:var(--pvInk)}
+  .pv .ph2{flex:none;width:166px;height:166px;border-radius:14px;overflow:hidden;background:rgba(255,255,255,.4);position:relative}
+  .pv .ph2 img{width:100%;height:100%;object-fit:cover;display:block}
+  .pv .empty{width:100%;height:100%;display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;opacity:.75;padding:10px}
+  .pv .dots{position:absolute;left:0;right:0;bottom:6px;display:flex;justify-content:center;gap:4px}
+  .pv .dots span{width:6px;height:6px;border-radius:3px;background:rgba(0,0,0,.25)}
+  .pv .dots span.on{width:16px;background:var(--pvAcc)}
+  .pv .info{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:6px}
+  .pv .l{font-size:20px;font-weight:700;color:var(--pvAcc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pv .c{font-family:Poppins,sans-serif;font-size:30px;font-weight:700;line-height:1}
+  .pv .p{font-family:Poppins,sans-serif;font-size:22px;font-weight:700;color:var(--pvPillInk);background:var(--pvPill);border-radius:999px;padding:2px 12px}
+  .pv .v{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .steps{display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--text2)}
+  /* list */
+  .lrow{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 12px;flex-wrap:wrap}
+  .lrow img,.lrow .noimg{width:56px;height:56px;border-radius:8px;object-fit:cover;background:var(--chip);flex:none}
+  .lrow .code{font-family:Poppins,sans-serif;font-size:20px;font-weight:700;min-width:84px}
+  .lrow .d{font-size:16px;flex:1 1 160px;min-width:0}
+  .lrow .pr{font-family:Poppins,sans-serif;font-size:17px;font-weight:700;color:var(--price);min-width:64px}
+  .lrow .cnt{font-size:14px;color:var(--sub);min-width:110px}
+  .lrow .ed{height:42px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--text);font-size:14px;font-weight:600;padding:0 16px}
+  .hide{display:none!important}
+  @media (max-width:640px){ #code{width:100%} .pv{height:auto} .pv .ph2{width:120px;height:120px} }
+</style>
+</head>
+<body>
+<datalist id="labels"></datalist>
+<div class="wrap">
+
+  <div class="card bar">
+    <span class="brand">VH SHOP</span>
+    <span class="title">Prep · before the live</span>
+    <span class="conn"><span class="dot" id="dot"></span><span id="connText">connecting…</span></span>
+    <span class="sp"></span>
+    <button type="button" class="seg on" id="tabPrep">Prep</button>
+    <button type="button" class="seg" id="tabList">List · <span id="listCount">0</span></button>
+    <button type="button" class="seg" id="dayBtn">☀ Day</button>
+  </div>
+
+  <div class="msg" id="msg"></div>
+
+  <!-- ===================== PREP ===================== -->
+  <section id="prep" class="grid2">
+    <div class="main">
+      <div class="card" style="display:flex;flex-direction:column;gap:12px">
+        <div class="row">
+          <label for="code" class="h">1 · Code</label>
+          <input id="code" class="in" placeholder="T877" autocomplete="off" spellcheck="false">
+          <span class="tag st-none hide" id="editTag">saved before · editing</span>
+          <div class="txtbox" id="txtBox">
+            <span id="txtText"></span>
+            <button type="button" id="useTxt">ប្រើ · Use</button>
+          </div>
+        </div>
+        <div class="row" style="align-items:flex-end">
+          <label class="lbl">Price ($)
+            <input id="price" class="in" inputmode="decimal" placeholder="6.8" autocomplete="off">
+          </label>
+          <label class="lbl" style="flex:1 1 260px">Label (pick from the list or type)
+            <input id="desc" class="in" list="labels" placeholder="កាបូប" autocomplete="off">
+          </label>
+        </div>
+      </div>
+
+      <div class="card" style="display:flex;flex-direction:column;gap:12px">
+        <div class="row" style="align-items:baseline;gap:10px">
+          <span class="h">2 · Photos</span>
+          <span class="hint">one per colour is best · one photo is fine · drag photos (or ◀ ▶) to change the slide order</span>
+        </div>
+        <div class="photos" id="photos">
+          <div class="drop" id="drop">
+            <span class="big">Drop photos here<br>from Telegram Desktop</span>
+            <span class="hint">or copy a photo and press <b>Ctrl+V</b> anywhere on this page</span>
+            <label>Choose files<input type="file" id="files" accept="image/*" multiple></label>
+          </div>
+        </div>
+        <div class="chips hide" id="chipsRow">
+          <span class="hint" style="margin-right:4px">Tap to fill the next empty photo:</span>
+          <span class="chips" id="chips"></span>
+        </div>
+        <div class="chips">
+          <span class="hint" style="margin-right:4px">Show on stream as:</span>
+          <span class="chips" id="prefix"></span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="bigbtn" id="saveBtn">3 · Save</button>
+        <button type="button" class="bigbtn main" id="saveNextBtn">Save &amp; next code</button>
+        <button type="button" class="bigbtn ghost" id="clearBtn">Clear</button>
+        <button type="button" class="bigbtn del hide" id="delBtn">Delete code</button>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="card" style="display:flex;flex-direction:column;gap:12px">
+        <div class="row" style="justify-content:space-between">
+          <span class="h">Preview on stream</span>
+          <span class="tag st-none" id="status">គ្មានរូប</span>
+        </div>
+        <div class="pv" id="pv">
+          <div class="ph2"><div class="empty" id="pvEmpty">no photo yet<br>→ text card</div><img id="pvImg" alt="" class="hide"><div class="dots" id="pvDots"></div></div>
+          <div class="info">
+            <span class="l" id="pvLabel">— label —</span>
+            <div class="row" style="gap:8px"><span class="c" id="pvCode">CODE</span><span class="p" id="pvPrice">?$</span></div>
+            <span class="v" id="pvVar"></span>
+          </div>
+        </div>
+        <span class="hint" id="pvNote">Slides through each photo like the stream. Colours follow the design picked on the host screen.</span>
+      </div>
+      <div class="card steps">
+        <span class="h">Each code</span>
+        <span>1 · Type the code → tap <b>ប្រើ · Use</b> if it's in txt</span>
+        <span>2 · Add photos → tap the colour chips in order</span>
+        <span>3 · <b>Save &amp; next code</b></span>
+        <span class="hint">គ្មានរូប = no photo (text card) · ត្រូវការព័ត៌មាន = no price or label · រួចរាល់ = ready</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== LIST ===================== -->
+  <section id="list" class="hide" style="display:flex;flex-direction:column;gap:12px">
+    <div class="row">
+      <label class="lbl" style="flex-direction:row;align-items:center;gap:8px">Search
+        <input id="lq" class="in" style="width:170px;text-transform:uppercase" placeholder="code" autocomplete="off">
+      </label>
+      <span id="filters" class="chips"></span>
+      <button type="button" class="seg sp" id="reload">↻ Reload</button>
+    </div>
+    <div class="msg" id="needMsg"></div>
+    <div id="rows" style="display:flex;flex-direction:column;gap:8px"></div>
+  </section>
+</div>
+
+<script>
+(function(){
+'use strict';
+/* ---------------- config ---------------- */
+var API  = 'https://firestore.googleapis.com/v1/projects/vhm-catalog/databases/(default)/documents/kv/';
+var AK   = '?key=AIzaSyDDQp5_gvuRdX0flKQ3gm3zXJM_SXWUJSE';
+var DEMO = /[?&]demo=1/.test(location.search);
+var MAX_SIDE = 480;                 // photos are shrunk to 480 px on the long side
+var LABELS = ['កងដៃ','កន្សែង','កម្រាល','កម្រាលជូតជើង','កម្រាលពូក','កាបូប','កែវទឹក','ក្រវិល','ក្រែម','ខោលើខ្លួន','ខោលើដៃ','ខោខាងក្រោយ','ខោADMIN','ខោលីអូស្រី','ខោលីអូប្រុស','ខោលីអូក្មេងស្រី','ខោលីអូក្មេងប្រុស','ខ្សែក','ខ្សែដៃ','ខ្សែក្រវ៉ាត់','ចិញ្ជៀន','ឈុតលើខ្លួន','ឈុតលើដៃ','ឈុតADMIN','ឈុតខាងក្រោយ','រ៉ូបលើខ្លួន','រ៉ូបលើដៃ','រ៉ូបខាងក្រោយ','រ៉ូបADMIN','ស្បែកជើង','ស្រោមជើង','ស្រោមជើងក្មេង','សំពត់លើខ្លួន','សំពត់លើដៃ','សំពត់ខាងក្រោយ','សំពត់ADMIN','អាវលើខ្លួន','អាវលើដៃ','អាវខាងក្រោយ','អាវADMIN','អៀមលើខ្លួន','អៀមលើដៃ','អៀមខាងក្រោយ','អៀមADMIN'];
+var PREFIX = [['auto','Auto'],['ពណ៌','ពណ៌ : …'],['ទំហំ','ទំហំ : …'],['ចំណុះ','ចំណុះ : …'],['none','name only']];
+var UNIT  = /^\d+(\.\d+)?\s*(g|kg|ml|l|cm|pcs|ក្រាម)$/i;
+var SIZEW = /^(XXS|XS|S|M|L|XL|XXL|XXXL|[2-6]XL|F|FREE|FS|OS|\d{2,3}(\.\d)?(CM)?)$/i;
+var THEMES = {   // preview colours of each overlay design (picked on the host screen)
+  royal:  {bg:'linear-gradient(100deg,#fff 40%,#f5dfe3)', frame:'#c98da2', ink:'#4d1730', acc:'#8a2f52', pill:'linear-gradient(#8a2f52,#5b1a35)', pillInk:'#fff'},
+  rose:   {bg:'linear-gradient(#b4667d,#8f4560)', frame:'#f3d4d6', ink:'#fff', acc:'#fff', pill:'linear-gradient(#c27b90,#9a5069)', pillInk:'#fff'},
+  ivory:  {bg:'rgba(253,247,243,.95)', frame:'#fff', ink:'#3d2224', acc:'#7d4c50', pill:'linear-gradient(#a0606a,#7a3f48)', pillInk:'#fff'},
+  blush:  {bg:'linear-gradient(#fffafa,#fde9e9)', frame:'#f4c6cc', ink:'#7c1f33', acc:'#5d2430', pill:'linear-gradient(#c8465c,#982238)', pillInk:'#fff'},
+  mauve:  {bg:'#fff', frame:'#f0d4da', ink:'#4b2030', acc:'#8b4a5f', pill:'transparent', pillInk:'#8b3a52'},
+  mocha:  {bg:'linear-gradient(#7c5648,#5c3d33)', frame:'#c9a891', ink:'#fff', acc:'#fbe9da', pill:'linear-gradient(#f6e6d6,#e4ccb6)', pillInk:'#5a3a30'},
+  classic:{bg:'linear-gradient(90deg,#3a3a38 0%,#6c6c6a 45%,#9a9a98 100%)', frame:'#f0a73a', ink:'#fff', acc:'#fff', pill:'transparent', pillInk:'#fff'}
+};
+
+/* ---------------- helpers ---------------- */
+function $(id){ return document.getElementById(id); }
+function esc(t){ return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function normCode(s){ return String(s||'').trim().toUpperCase().replace(/\s+/g,''); }
+function keyCode(c){ return 'vhshop_code:'+c.replace(/\//g,'-'); }
+function keyImg(c,id){ return 'vhshop_img:'+c.replace(/\//g,'-')+':'+id; }
+function rid(){ return Date.now().toString(36).slice(-5)+Math.random().toString(36).slice(2,6); }
+function statusOf(r){
+  if(!r.photos || !r.photos.length) return 'គ្មានរូប';
+  if(!String(r.price||'').trim() || !String(r.desc||'').trim()) return 'ត្រូវការព័ត៌មាន';
+  return 'រួចរាល់';
+}
+function stClass(st){ return st==='រួចរាល់' ? 'st-ready' : (st==='ត្រូវការព័ត៌មាន' ? 'st-need' : 'st-none'); }
+function variantText(v,prefix){
+  v=String(v||'').trim(); if(!v) return '';
+  if(prefix==='none') return v;
+  if(prefix==='auto') return UNIT.test(v) ? v : 'ពណ៌ : '+v;
+  return prefix+' : '+v;
+}
+function colourWords(rows){
+  var out=[];
+  (rows||[]).forEach(function(r){ String(r).split(/\s+/).forEach(function(w){ if(w && !SIZEW.test(w) && !/[:\d]/.test(w) && out.indexOf(w)<0) out.push(w); }); });
+  return out;
+}
+var msgTimer=null;
+function say(kind,text,stay){
+  var m=$('msg'); m.className='msg '+kind; m.textContent=text;
+  clearTimeout(msgTimer); if(!stay) msgTimer=setTimeout(function(){ m.className='msg'; },7000);
+}
+
+/* ---------------- store: Firestore REST (or memory in demo) ---------------- */
+var mem = {};
+var store = {
+  get: function(k){
+    if(DEMO) return Promise.resolve(mem[k] ? JSON.parse(mem[k]) : null);
+    return fetch(API+encodeURIComponent(k)+AK).then(function(r){
+      if(r.status===404) return null;
+      if(!r.ok) throw new Error('read '+k+': HTTP '+r.status);
+      return r.json();
+    }).then(function(j){
+      var v = j && j.fields && j.fields.data && j.fields.data.stringValue;
+      try { return v ? JSON.parse(v) : null; } catch(e){ return null; }
+    });
+  },
+  put: function(k,obj){
+    if(DEMO){ mem[k]=JSON.stringify(obj); return Promise.resolve(); }
+    return fetch(API+encodeURIComponent(k)+AK,{method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({fields:{data:{stringValue:JSON.stringify(obj)},updatedAt:{timestampValue:new Date().toISOString()}}})
+    }).then(function(r){ if(!r.ok) throw new Error('save '+k+': HTTP '+r.status+(r.status===403?' (Firestore rules blocked it)':'')); });
+  },
+  del: function(k){
+    if(DEMO){ delete mem[k]; return Promise.resolve(); }
+    return fetch(API+encodeURIComponent(k)+AK,{method:'DELETE'}).then(function(r){ if(!r.ok && r.status!==404) throw new Error('delete '+k+': HTTP '+r.status); });
+  }
+};
+
+/* ---------------- state ---------------- */
+var TXT = {};             // CODE -> [price, label, rows]
+var INDEX = {};           // CODE -> summary (from kv/vhshop_index)
+var THEME = 'royal', SEC = 3;
+var cur = blank();
+var dirty = false;
+var thumbs = {};          // 'CODE:id' -> dataURL cache for the list
+function blank(){ return {code:'', price:'', desc:'', prefix:'auto', rows:null, photos:[], removed:[], loadedFrom:null}; }
+
+/* ---------------- init ---------------- */
+$('labels').innerHTML = LABELS.map(function(l){ return '<option value="'+esc(l)+'">'; }).join('');
+try { if(localStorage.getItem('vhshop_prep_day')==='1') document.body.classList.add('day'); } catch(e){}
+paintDayBtn();
+
+fetch('txt.json').then(function(r){ return r.ok ? r.json() : {}; }).then(function(j){ TXT=j||{}; renderTxt(); renderChips(); })
+  .catch(function(){ TXT={}; });
+
+if(DEMO){
+  $('dot').className='dot demo'; $('connText').textContent='practice mode · nothing is saved online';
+  INDEX={}; renderListCount();
+} else {
+  Promise.all([store.get('vhshop_index'), store.get('vhshop_settings').catch(function(){ return null; })]).then(function(r){
+    INDEX = (r[0] && r[0].codes) || {};
+    var st = r[1] || {};
+    if(st.theme && THEMES[st.theme]) THEME = st.theme;
+    if(st.sec) SEC = Math.max(2, Math.min(5, +st.sec||3));
+    $('dot').className='dot ok'; $('connText').textContent='online · saves to Firebase';
+    renderListCount(); applyTheme();
+  }).catch(function(err){
+    $('dot').className='dot bad'; $('connText').textContent='cannot reach Firebase';
+    say('bad','Cannot reach Firebase ('+err.message+'). Check the internet, then reload the page.',true);
+  });
+}
+applyTheme();
+
+/* ---------------- tabs / day ---------------- */
+$('tabPrep').onclick=function(){ showTab('prep'); };
+$('tabList').onclick=function(){ showTab('list'); };
+function showTab(t){
+  $('prep').classList.toggle('hide',t!=='prep'); $('list').classList.toggle('hide',t!=='list');
+  $('tabPrep').classList.toggle('on',t==='prep'); $('tabList').classList.toggle('on',t==='list');
+  if(t==='list') renderList();
+}
+$('dayBtn').onclick=function(){
+  var on=!document.body.classList.contains('day'); document.body.classList.toggle('day',on);
+  try{ localStorage.setItem('vhshop_prep_day',on?'1':'0'); }catch(e){} paintDayBtn();
+};
+function paintDayBtn(){ $('dayBtn').textContent = document.body.classList.contains('day') ? '☾ Night' : '☀ Day'; }
+function applyTheme(){
+  var t=THEMES[THEME]||THEMES.royal, s=$('pv').style;
+  s.setProperty('--pvBg',t.bg); s.setProperty('--pvFrame',t.frame); s.setProperty('--pvInk',t.ink);
+  s.setProperty('--pvAcc',t.acc); s.setProperty('--pvPill',t.pill); s.setProperty('--pvPillInk',t.pillInk);
+}
+
+/* ---------------- code / price / label ---------------- */
+var codeTimer=null;
+$('code').addEventListener('input',function(){
+  clearTimeout(codeTimer);
+  codeTimer=setTimeout(onCodeSettled,350);
+  cur.code = normCode($('code').value);
+  renderTxt(); renderChips(); renderPreview();
+});
+function onCodeSettled(){
+  var c=normCode($('code').value);
+  if(!c || c===cur.loadedFrom) return;
+  if(INDEX[c] || DEMO && mem[keyCode(c)]){
+    if(dirty && cur.photos.some(function(p){return p.isNew;}) && !confirm(c+' was saved before. Open the saved '+c+' and drop the photos you just added?')) return;
+    loadCode(c);
+  } else if(cur.loadedFrom){
+    // was editing another code, typed a new one: keep the form as a copy for the new code
+    cur.loadedFrom=null; cur.photos.forEach(function(p){ p.isNew=true; }); cur.removed=[]; $('editTag').classList.add('hide'); $('delBtn').classList.add('hide');
+  }
+}
+function loadCode(c){
+  say('ok','Opening '+c+'…',true);
+  store.get(keyCode(c)).then(function(r){
+    if(!r){ say('warn',c+' is in the list but its record is missing. Save it again.'); return; }
+    return Promise.all((r.photos||[]).map(function(p){
+      return store.get(keyImg(c,p.id)).then(function(im){ return {id:p.id, v:p.v||'', src: im && im.img || '', isNew:false}; });
+    })).then(function(ph){
+      cur={code:c, price:r.price||'', desc:r.desc||'', prefix:r.prefix||'auto', rows:r.rows||null,
+           photos:ph.filter(function(p){ return p.src; }), removed:[], loadedFrom:c};
+      var lost = ph.length - cur.photos.length;
+      dirty=false; fillForm();
+      say(lost?'warn':'ok', lost ? c+' opened, but '+lost+' photo(s) could not be loaded.' : c+' opened · '+cur.photos.length+' photo'+(cur.photos.length===1?'':'s')+'. Change anything, then save.');
+    });
+  }).catch(function(err){ say('bad','Could not open '+c+': '+err.message); });
+}
+function fillForm(){
+  $('code').value=cur.code; $('price').value=cur.price; $('desc').value=cur.desc;
+  var editing=!!cur.loadedFrom;
+  $('editTag').classList.toggle('hide',!editing); $('delBtn').classList.toggle('hide',!editing);
+  renderTxt(); renderPhotos(); renderChips(); renderPrefix(); renderPreview();
+}
+$('price').addEventListener('input',function(){ cur.price=$('price').value.trim(); dirty=true; renderPreview(); });
+$('desc').addEventListener('input',function(){ cur.desc=$('desc').value.trim(); dirty=true; renderPreview(); });
+
+function renderTxt(){
+  var t=TXT[cur.code];
+  $('txtBox').classList.toggle('show',!!t);
+  if(t) $('txtText').innerHTML='in txt: <b>'+esc(t[1])+'</b> · '+esc(t[0])+'$'+(t[2]&&t[2].length?' · '+esc(t[2].slice(0,3).join(' / '))+(t[2].length>3?' …':''):'');
+}
+$('useTxt').onclick=function(){
+  var t=TXT[cur.code]; if(!t) return;
+  cur.price=t[0]; cur.desc=t[1]; cur.rows=t[2]||[]; dirty=true;
+  $('price').value=cur.price; $('desc').value=cur.desc;
+  renderPreview(); renderChips();
+  say('ok','Price and label filled from txt. Now add the photos and tap the colours.');
+};
+
+/* ---------------- photos: add (drop / paste / files) ---------------- */
+function shrink(file){
+  return new Promise(function(res,rej){
+    var url=URL.createObjectURL(file), im=new Image();
+    im.onload=function(){
+      var w=im.naturalWidth, h=im.naturalHeight, k=Math.min(1, MAX_SIDE/Math.max(w,h));
+      var cv=document.createElement('canvas'); cv.width=Math.round(w*k); cv.height=Math.round(h*k);
+      var g=cv.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,cv.width,cv.height); g.drawImage(im,0,0,cv.width,cv.height);
+      URL.revokeObjectURL(url);
+      var q=.82, d=cv.toDataURL('image/jpeg',q);
+      while(d.length>90000 && q>.45){ q-=.1; d=cv.toDataURL('image/jpeg',q); }   // keep each photo doc small
+      res(d);
+    };
+    im.onerror=function(){ URL.revokeObjectURL(url); rej(new Error(file.name+' is not a picture this browser can read')); };
+    im.src=url;
+  });
+}
+function addFiles(list){
+  var files=[].slice.call(list||[]).filter(function(f){ return /^image\//.test(f.type); });
+  if(!files.length){ say('warn','No picture found. Drop or paste a photo (JPG, PNG, WEBP).'); return; }
+  say('ok','Adding '+files.length+' photo'+(files.length>1?'s':'')+'…',true);
+  Promise.all(files.map(function(f){ return shrink(f).then(function(d){ return d; },function(e){ return {err:e.message}; }); })).then(function(out){
+    var ok=0, bad=[];
+    out.forEach(function(d){ if(typeof d==='string'){ cur.photos.push({id:rid(), v:'', src:d, isNew:true}); ok++; } else bad.push(d.err); });
+    dirty=true; renderPhotos(); renderChips(); renderPreview();
+    if(bad.length) say('warn',ok+' added. '+bad.join(' · '));
+    else say('ok',ok+' photo'+(ok>1?'s':'')+' added. Name each one (tap the colours), then save.');
+  });
+}
+$('files').addEventListener('change',function(){ addFiles(this.files); this.value=''; });
+var dropZone=$('drop'), dragFrom=null;
+['dragenter','dragover'].forEach(function(ev){ document.addEventListener(ev,function(e){
+  if(dragFrom!==null) return;
+  if(e.dataTransfer && [].indexOf.call(e.dataTransfer.types||[],'Files')>=0){ e.preventDefault(); dropZone.classList.add('over'); }
+}); });
+document.addEventListener('dragleave',function(e){ if(!e.relatedTarget) dropZone.classList.remove('over'); });
+document.addEventListener('drop',function(e){
+  if(dragFrom!==null) return;
+  dropZone.classList.remove('over');
+  if(!e.dataTransfer) return;
+  e.preventDefault();
+  if($('prep').classList.contains('hide')) showTab('prep');
+  if(e.dataTransfer.files && e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+  else say('warn','That drop had no photo file. In Telegram Desktop drag the photo itself, or right-click → Copy Image and press Ctrl+V here.');
+});
+document.addEventListener('paste',function(e){
+  if($('prep').classList.contains('hide')) return;
+  var items=(e.clipboardData && e.clipboardData.items) || [], files=[];
+  for(var i=0;i<items.length;i++){ if(items[i].kind==='file'){ var f=items[i].getAsFile(); if(f) files.push(f); } }
+  if(files.length){ e.preventDefault(); addFiles(files); }
+});
+
+/* ---------------- photos: tiles ---------------- */
+function renderPhotos(){
+  var box=$('photos');
+  [].slice.call(box.querySelectorAll('.ph')).forEach(function(n){ n.remove(); });
+  cur.photos.forEach(function(p,i){
+    var d=document.createElement('div'); d.className='ph'; d.draggable=true; d.dataset.i=i;
+    d.innerHTML='<div class="pic"><img alt="photo '+(i+1)+'" src="'+p.src+'"><span class="n">'+(i+1)+'</span>'+(p.isNew?'<span class="new">new</span>':'')+'</div>'+
+      '<input class="in" aria-label="Name of photo '+(i+1)+'" placeholder="colour / 500g" value="'+esc(p.v)+'">'+
+      '<div class="btns"><button type="button" aria-label="Move earlier">◀</button><button type="button" aria-label="Move later">▶</button><button type="button" class="x" aria-label="Remove photo">✕</button></div>';
+    var inp=d.querySelector('input'), b=d.querySelectorAll('button');
+    inp.addEventListener('input',function(){ p.v=inp.value; dirty=true; renderChips(); renderPreview(); });
+    b[0].onclick=function(){ move(i,i-1); };
+    b[1].onclick=function(){ move(i,i+1); };
+    b[2].onclick=function(){ var gone=cur.photos.splice(i,1)[0]; if(!gone.isNew) cur.removed.push(gone.id); dirty=true; renderPhotos(); renderChips(); renderPreview(); };
+    d.addEventListener('dragstart',function(e){ dragFrom=i; d.classList.add('drag'); e.dataTransfer.effectAllowed='move'; try{ e.dataTransfer.setData('text/plain','photo'); }catch(x){} });
+    d.addEventListener('dragend',function(){ dragFrom=null; d.classList.remove('drag'); });
+    d.addEventListener('dragover',function(e){ if(dragFrom!==null){ e.preventDefault(); d.classList.add('over'); } });
+    d.addEventListener('dragleave',function(){ d.classList.remove('over'); });
+    d.addEventListener('drop',function(e){ if(dragFrom===null) return; e.preventDefault(); e.stopPropagation(); d.classList.remove('over'); var from=dragFrom; dragFrom=null; move(from,i); });
+    box.insertBefore(d,dropZone);
+  });
+}
+function move(a,b){
+  if(b<0||b>=cur.photos.length||a===b) return;
+  var p=cur.photos.splice(a,1)[0]; cur.photos.splice(b,0,p); dirty=true; renderPhotos(); renderPreview();
+}
+
+/* ---------------- colour chips + prefix ---------------- */
+function renderChips(){
+  var t=TXT[cur.code], rows=(cur.rows&&cur.rows.length)?cur.rows:(t?t[2]:null), words=colourWords(rows);
+  $('chipsRow').classList.toggle('hide',!words.length);
+  var used=cur.photos.map(function(p){ return String(p.v||'').trim(); });
+  var box=$('chips'); box.innerHTML='';
+  words.forEach(function(w){
+    var b=document.createElement('button'); b.type='button'; b.className='chip'+(used.indexOf(w)>=0?' used':''); b.textContent=w;
+    b.onclick=function(){
+      for(var i=0;i<cur.photos.length;i++){ if(!String(cur.photos[i].v||'').trim()){ cur.photos[i].v=w; dirty=true; renderPhotos(); renderChips(); renderPreview(); return; } }
+      say('warn', cur.photos.length ? 'Every photo already has a name. Add another photo for '+w+', or type '+w+' into a photo name.' : 'Add the photos first, then tap the colours.');
+    };
+    box.appendChild(b);
+  });
+}
+function renderPrefix(){
+  var box=$('prefix'); box.innerHTML='';
+  PREFIX.forEach(function(p){
+    var b=document.createElement('button'); b.type='button'; b.className='seg'+(cur.prefix===p[0]?' on':''); b.textContent=p[1];
+    b.setAttribute('aria-pressed',cur.prefix===p[0]);
+    b.onclick=function(){ cur.prefix=p[0]; dirty=true; renderPrefix(); renderPreview(); };
+    box.appendChild(b);
+  });
+}
+
+/* ---------------- preview ---------------- */
+var slide=0, slideTimer=setInterval(function(){ slide++; renderPreview(true); },1000);
+function renderPreview(tick){
+  var n=cur.photos.length, k=n ? Math.floor(slide/SEC)%n : 0, p=n?cur.photos[k]:null;
+  if(!tick){
+    var st=statusOf(cur); var s=$('status'); s.textContent=st; s.className='tag '+stClass(st);
+    $('pvLabel').textContent=cur.desc||'— label —';
+    $('pvCode').textContent=cur.code||'CODE';
+    $('pvPrice').textContent=(cur.price||'?')+'$';
+  }
+  $('pvImg').classList.toggle('hide',!p); $('pvEmpty').classList.toggle('hide',!!p);
+  if(p && $('pvImg').getAttribute('src')!==p.src) $('pvImg').src=p.src;
+  $('pvVar').textContent=p?variantText(p.v,cur.prefix):'';
+  $('pvDots').innerHTML=n>1?cur.photos.map(function(x,i){ return '<span class="'+(i===k?'on':'')+'"></span>'; }).join(''):'';
+}
+
+/* ---------------- save / delete ---------------- */
+var busy=false;
+$('saveBtn').onclick=function(){ save(false); };
+$('saveNextBtn').onclick=function(){ save(true); };
+$('clearBtn').onclick=function(){
+  if(dirty && !confirm('Clear the form? Changes not saved will be lost.')) return;
+  cur=blank(); dirty=false; fillForm(); $('code').focus();
+};
+function save(next){
+  if(busy) return;
+  cur.code=normCode($('code').value); cur.price=$('price').value.trim(); cur.desc=$('desc').value.trim();
+  var c=cur.code;
+  if(!c){ say('warn','Type the code first.'); $('code').focus(); return; }
+  if(!/^[A-Z0-9][A-Z0-9\-\/.]{0,23}$/.test(c)){ say('warn','"'+c+'" does not look like a product code. Use letters and numbers only (e.g. T877).'); return; }
+  if(!cur.photos.length){ say('warn',c+' has no photo. Add at least one photo. (Codes without photos already show as text cards.)'); return; }
+  if(cur.price && !/^\d+(\.\d+)?$/.test(cur.price)){ say('warn','Price should be a number like 6.8'); $('price').focus(); return; }
+  if(cur.loadedFrom && cur.loadedFrom!==c){ cur.photos.forEach(function(p){ p.isNew=true; }); cur.removed=[]; }
+  var t=TXT[c];
+  var rec={ code:c, price:cur.price, desc:cur.desc, prefix:cur.prefix, rows: cur.rows || (t?t[2]:[]) || [],
+            photos: cur.photos.map(function(p){ return {id:p.id, v:String(p.v||'').trim()}; }),
+            updatedAt:new Date().toISOString() };
+  rec.status=statusOf(rec);
+  var news=cur.photos.filter(function(p){ return p.isNew; });
+  busy=true; setBusy(true,'Saving photos 0 / '+news.length+'…');
+  var done=0;
+  // 1) photos first, 2) the code record, 3) remove deleted photos, 4) the list index
+  Promise.all(news.map(function(p){ return store.put(keyImg(c,p.id),{img:p.src}).then(function(){ done++; setBusy(true,'Saving photos '+done+' / '+news.length+'…'); }); }))
+  .then(function(){ setBusy(true,'Saving '+c+'…'); return store.put(keyCode(c),rec); })
+  .then(function(){ return Promise.all(cur.removed.map(function(id){ return store.del(keyImg(c,id)).catch(function(){}); })); })
+  .then(function(){ return updateIndex(function(ix){ ix[c]={price:rec.price, desc:rec.desc, n:rec.photos.length, status:rec.status, thumb:rec.photos[0].id, updatedAt:rec.updatedAt}; }); })
+  .then(function(){
+    news.forEach(function(p){ p.isNew=false; });
+    cur.removed=[]; cur.loadedFrom=c; dirty=false;
+    thumbs[c+':'+rec.photos[0].id]=cur.photos[0].src;
+    var msg = rec.status==='រួចរាល់' ? '✓ '+c+' saved · រួចរាល់ · '+rec.photos.length+' photo'+(rec.photos.length>1?'s':'')+'.'
+                                     : c+' saved, but the '+(!rec.price&&!rec.desc?'price and label are':(!rec.price?'price is':'label is'))+' missing · ត្រូវការព័ត៌មាន.';
+    say(rec.status==='រួចរាល់'?'ok':'warn', msg);
+    if(next){ cur=blank(); fillForm(); $('code').focus(); } else fillForm();
+  })
+  .catch(function(err){ say('bad','Not saved: '+err.message+'. Nothing is lost on this screen; check the internet and press Save again.',true); })
+  .then(function(){ busy=false; setBusy(false); });
+}
+function updateIndex(fn){
+  return store.get('vhshop_index').then(function(d){
+    var ix=(d&&d.codes)||{}; fn(ix); INDEX=ix; renderListCount();
+    return store.put('vhshop_index',{codes:ix,updatedAt:new Date().toISOString()});
+  });
+}
+function setBusy(on,text){
+  ['saveBtn','saveNextBtn','clearBtn','delBtn'].forEach(function(id){ $(id).disabled=on; });
+  $('saveNextBtn').textContent = on ? text : 'Save & next code';
+}
+$('delBtn').onclick=function(){
+  var c=cur.loadedFrom; if(!c||busy) return;
+  if(!confirm('Delete '+c+' and all its photos from Prep? It will show as a text card again.')) return;
+  busy=true; setBusy(true,'Deleting '+c+'…');
+  store.get(keyCode(c)).then(function(r){
+    var ids=((r&&r.photos)||[]).map(function(p){return p.id;});
+    return Promise.all(ids.map(function(id){ return store.del(keyImg(c,id)).catch(function(){}); }));
+  }).then(function(){ return store.del(keyCode(c)); })
+  .then(function(){ return updateIndex(function(ix){ delete ix[c]; }); })
+  .then(function(){ say('ok',c+' deleted.'); cur=blank(); dirty=false; fillForm(); })
+  .catch(function(err){ say('bad','Not deleted: '+err.message); })
+  .then(function(){ busy=false; setBusy(false); });
+};
+window.addEventListener('beforeunload',function(e){ if(dirty){ e.preventDefault(); e.returnValue=''; } });
+
+/* ---------------- list ---------------- */
+var FILTER='all';
+function renderListCount(){ $('listCount').textContent=Object.keys(INDEX).length; }
+$('lq').addEventListener('input',renderList);
+$('reload').onclick=function(){
+  if(DEMO){ renderList(); return; }
+  store.get('vhshop_index').then(function(d){ INDEX=(d&&d.codes)||{}; renderListCount(); renderList(); say('ok','List reloaded.'); })
+    .catch(function(err){ say('bad','Could not reload: '+err.message); });
+};
+function renderFilters(){
+  var box=$('filters'); box.innerHTML='';
+  [['all','All'],['need','Needs info'],['ready','Ready']].forEach(function(f){
+    var b=document.createElement('button'); b.type='button'; b.className='seg'+(FILTER===f[0]?' on':''); b.textContent=f[1];
+    b.onclick=function(){ FILTER=f[0]; renderList(); }; box.appendChild(b);
+  });
+}
+function renderList(){
+  renderFilters();
+  var q=normCode($('lq').value);
+  var codes=Object.keys(INDEX).sort(function(a,b){ return String(INDEX[b].updatedAt||'').localeCompare(String(INDEX[a].updatedAt||'')); });
+  var need=codes.filter(function(c){ return INDEX[c].status==='ត្រូវការព័ត៌មាន'; });
+  var nm=$('needMsg');
+  if(need.length){ nm.className='msg warn'; nm.textContent='⚠ '+need.length+' code'+(need.length>1?'s have':' has')+' photos but no price or label: '+need.slice(0,12).join(', ')+(need.length>12?' …':'')+'. Fix before the live (tap Edit).'; }
+  else nm.className='msg';
+  var shown=codes.filter(function(c){ var s=INDEX[c].status;
+    if(q && c.indexOf(q)<0) return false;
+    if(FILTER==='need') return s!=='រួចរាល់';
+    if(FILTER==='ready') return s==='រួចរាល់';
+    return true; });
+  var box=$('rows');
+  if(!shown.length){ box.innerHTML='<div class="card hint" style="text-align:center;padding:28px">'+(codes.length?'No code matches.':'Nothing saved yet. Save the first code on the Prep tab.')+'</div>'; return; }
+  box.innerHTML=shown.slice(0,300).map(function(c){ var r=INDEX[c], tk=c+':'+r.thumb;
+    return '<div class="lrow">'+(thumbs[tk]?'<img alt="" src="'+thumbs[tk]+'">':'<span class="noimg" data-thumb="'+esc(tk)+'"></span>')+
+      '<span class="code">'+esc(c)+'</span><span class="d">'+esc(r.desc||'— no label —')+'</span>'+
+      '<span class="pr">'+(r.price?esc(r.price)+'$':'—')+'</span><span class="cnt">'+r.n+' photo'+(r.n===1?'':'s')+'</span>'+
+      '<span class="tag '+stClass(r.status)+'">'+esc(r.status)+'</span>'+
+      '<button type="button" class="ed" data-code="'+esc(c)+'">Edit</button></div>'; }).join('');
+  [].forEach.call(box.querySelectorAll('.ed'),function(b){ b.onclick=function(){
+    var c=b.getAttribute('data-code');
+    if(dirty && !confirm('Open '+c+'? Changes on the Prep tab that are not saved will be lost.')) return;
+    showTab('prep'); loadCode(c); }; });
+  loadThumbs();
+}
+function loadThumbs(){
+  var slots=[].slice.call(document.querySelectorAll('#rows .noimg')).slice(0,40);
+  slots.reduce(function(chain,el){
+    return chain.then(function(){
+      var tk=el.getAttribute('data-thumb'), i=tk.lastIndexOf(':'), c=tk.slice(0,i), id=tk.slice(i+1);
+      return store.get(keyImg(c,id)).then(function(im){ if(im&&im.img){ thumbs[tk]=im.img; var img=document.createElement('img'); img.alt=''; img.src=im.img; el.replaceWith(img); } }).catch(function(){});
+    });
+  },Promise.resolve());
+}
+
+/* ---------------- first paint ---------------- */
+fillForm();
+$('code').focus();
+if(DEMO) say('warn','Practice mode (?demo=1): try anything — nothing is saved to Firebase, and it is gone when you close the tab.',true);
+})();
+</script>
+</body>
+</html>
