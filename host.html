@@ -157,6 +157,7 @@
         <div class="themes" id="themes"></div>
         <span class="hint">Tint (see-through)</span><div class="row" id="tintRow"></div>
         <span class="hint">Card size</span><div class="row" id="sizeRow"></div>
+        <span class="hint">Banner size (top)</span><div class="row" id="bnRow"></div>
         <span class="hint">Slide motion</span><div class="row" id="motionRow"></div>
         <span class="hint">Seconds per colour</span><div class="row" id="secRow"></div>
       </div>
@@ -174,7 +175,7 @@ var POS_COLOR = {auto:'#F08DB0','លើខ្លួន':'#7FB2FF','លើដៃ'
 var CLOTH = ['អាវ','ខោ','សំពត់','រ៉ូប','ឈុត','អៀម'];
 var THEMES = [['royal','Royal Wine',['#7b2c49','#fff8f4','#e8c98f']],['rose','Rose Garden',['#f6dcd9','#a8536d','#fff6f3']],['ivory','Ivory Soft',['#fbf3ee','#a0606a','#fff']],
   ['blush','Blush Ribbon',['#fde7e6','#c0485a','#fff']],['mauve','Mauve Tabs',['#f6e2e6','#a8647a','#fff']],['mocha','Mocha',['#6e4b40','#f4e3d2','#c9a891']],['classic','Classic (now)',['#5a321f','#46463e','#f0a73a']]];
-var DEF = { theme:'royal', tint:1, size:1, motion:'slide', sec:3, banner:'promo',
+var DEF = { theme:'royal', tint:1, size:1, bnSize:1, motion:'slide', sec:3, banner:'promo',
   titles:{ promo:['ការបញ្ចុះតម្លៃពិសេសមកដល់ហើយ!','មានតែនៅក្នុងការឡាយតែប៉ុណ្ណោះ'], normal:['សូមស្វាគមន៍មកកាន់ VH Shop','ទំនិញថ្មីៗ តម្លៃពិសេស រៀងរាល់ថ្ងៃ'] },
   badge:{ t:'សេវាដឹក', p:'1$', s:'ទូទាំងខេត្ត/ក្រុង' } };
 
@@ -251,6 +252,16 @@ function loadImgs(c){
 }
 
 /* ---------------- send ---------------- */
+var SIZE_RE=/^(XXS|XS|S|M|L|XL|XXL|XXXL|[2-6]XL|FREE|FREESIZE|F|[1-4][0-9])$/i;
+function words(s){ return String(s||'').replace(/[:：,،.\/|]/g,' ').trim().split(/\s+/).filter(function(w){ return w && !SIZE_RE.test(w); }); }
+function inStockPhotos(photos, it){   // same rule as the overlay: hide photos of colours sold out on Vrich
+  if (!it || (!it.rows && !it.sold)) return photos;
+  var inS={}, known={};
+  (it.rows||[]).forEach(function(r){ words(r).forEach(function(w){ inS[w]=known[w]=1; }); });
+  (it.sold||[]).forEach(function(r){ words(r).forEach(function(w){ known[w]=1; }); });
+  var keep=photos.filter(function(p){ var ws=words(p.v); if(!ws.length) return true; if(!ws.some(function(w){ return known[w]; })) return true; return ws.some(function(w){ return inS[w]; }); });
+  return keep.length?keep:photos;
+}
 function labelBase(c){ var ix=INDEX[c], t=TXT[c]; return (ix&&ix.desc)||(t&&t[1])||''; }
 function hasPhotos(c){ var ix=INDEX[c]; return !!(ix && ix.n>0); }
 function sendCode(raw){
@@ -361,13 +372,13 @@ function renderCards(){
   else { var wrap=document.createElement('div'); wrap.style.cssText='display:flex;flex-direction:column;gap:12px'; pb.appendChild(wrap);
   PICS.forEach(function(it,i){
     var c=norm(it.code), r=REC[c], ix=INDEX[c], t=TXT[c];
-    var photos=(r&&r.photos)||[], defPrice=(r&&r.price)||(ix&&ix.price)||(t&&t[0])||'';
+    var photos=inStockPhotos((r&&r.photos)||[],it), soldN=((r&&r.photos)||[]).length-photos.length, defPrice=(r&&r.price)||(ix&&ix.price)||(t&&t[0])||'';
     var need=!(it.price||defPrice) || !(it.label||labelBase(c));
     var d=document.createElement('div'); d.className='card pcard'; d.dataset.code=c;
     var k=slideIndex(photos.length,i), cur=photos[k], src=cur?IMGS[c+':'+cur.id]:'';
     d.innerHTML='<div class="ph">'+(src?'<img alt="'+esc(c)+'" src="'+src+'">':'<div class="noimg"></div>')+'<span class="hint">'+(photos.length>1?'showing '+(k+1)+' of '+photos.length:(photos.length?'1 photo':'loading…'))+'</span></div>'+
       '<div class="info"><div class="top"><span class="slot" style="color:var(--acc)">PICTURE '+(i+1)+'</span><span class="age">on stream '+ago(it.at)+'</span>'+
-      (need?'<span class="pill warn">ត្រូវការព័ត៌មាន</span>':'')+'</div>'+
+      (need?'<span class="pill warn">ត្រូវការព័ត៌មាន</span>':'')+(soldN>0?'<span class="pill mute">'+soldN+' sold-out colour'+(soldN>1?'s':'')+' hidden</span>':'')+'</div>'+
       '<div class="row lrow"></div><div class="row crow"><span class="code">'+esc(c)+'</span></div>'+
       '<div class="vchips">'+photos.map(function(p,j){ return '<span class="vchip'+(j===k?' on':'')+'">'+esc(p.v||'(no name)')+'</span>'; }).join('')+'</div></div>';
     d.querySelector('.top').appendChild(xBtn(function(){ removeItem('vhshop_overlay_pics',c); },c));
@@ -401,7 +412,7 @@ setInterval(function(){
   var changed=h.join()!==HIDDEN.join(); HIDDEN=h.slice();
   if(changed){ renderCards(); return; }
   [].forEach.call(document.querySelectorAll('.pcard'),function(d,i){
-    var c=d.dataset.code, r=REC[c], photos=(r&&r.photos)||[]; if(photos.length<2) return;
+    var c=d.dataset.code, r=REC[c], it=PICS.filter(function(x){ return norm(x.code)===c; })[0], photos=inStockPhotos((r&&r.photos)||[],it); if(photos.length<2) return;
     var k=slideIndex(photos.length,i), src=IMGS[c+':'+photos[k].id], img=d.querySelector('.ph img');
     if(img && src && img.getAttribute('src')!==src) img.src=src;
     var hs=d.querySelector('.ph .hint'); if(hs) hs.textContent='showing '+(k+1)+' of '+photos.length;
@@ -431,6 +442,7 @@ function renderSettings(){
     b.onclick=function(){ S.theme=t[0]; renderSettings(); saveSettings(true); }; tb.appendChild(b); });
   segRow('tintRow',[1,.85,.7,.55],'tint',function(v){ return Math.round(v*100)+'%'; });
   segRow('sizeRow',[1,.9,.8],'size',function(v){ return Math.round(v*100)+'%'; });
+  segRow('bnRow',[1,.9,.8,.7],'bnSize',function(v){ return Math.round(v*100)+'%'; });
   segRow('motionRow',['slide','fade','zoom'],'motion',function(v){ return v.charAt(0).toUpperCase()+v.slice(1); });
   segRow('secRow',[2,3,4,5],'sec',function(v){ return v+' s'; });
 }

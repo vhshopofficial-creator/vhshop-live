@@ -30,7 +30,8 @@ body.dark #stage{background:linear-gradient(170deg,#5b4a50,#2c2226 60%,#1b1417)}
 #ov{position:absolute;inset:0}
 
 /* banner */
-.bn{position:absolute;left:0;top:0;width:1080px;height:290px;color:var(--bnInk)}
+.bn{position:absolute;left:0;top:0;width:1080px;height:calc(290px*var(--bn,1));color:var(--bnInk)}
+.bn .bnc{position:absolute;left:0;top:0;width:1080px;height:290px;transform:scale(var(--bn,1));transform-origin:50% 0}
 .bn svg.wave{position:absolute;inset:0;width:100%;height:100%}
 .bn .live{position:absolute;left:30px;top:42px;font:700 22px Poppins,sans-serif;line-height:1.05;letter-spacing:1px}
 .bn .live b{display:inline-flex;align-items:center;gap:6px;background:#d8203a;color:#fff;padding:3px 10px;border-radius:7px}
@@ -53,7 +54,7 @@ body.dark #stage{background:linear-gradient(170deg,#5b4a50,#2c2226 60%,#1b1417)}
 .foot svg{width:100%;height:100%}
 
 /* text column */
-.tcol{position:absolute;right:26px;top:316px;width:322px;display:flex;flex-direction:column;gap:12px}
+.tcol{position:absolute;right:calc(26px / var(--size,1));top:calc((290px * var(--bn,1) + 26px) / var(--size,1));width:322px;display:flex;flex-direction:column;gap:12px}
 .tcol:empty{display:none}
 .tc{border-radius:20px;padding:12px 18px 14px;--bgv:var(--cardBg);color:var(--cardInk);box-shadow:0 6px 18px rgba(60,10,30,.18);border:2px solid var(--frame)}
 .tc-h{display:flex;align-items:center;gap:10px;font:600 33px/1.35 'Kantumruy Pro';color:var(--lblInk)}
@@ -81,7 +82,7 @@ body.dark #stage{background:linear-gradient(170deg,#5b4a50,#2c2226 60%,#1b1417)}
 .guide span{position:absolute;bottom:30px;left:6px;background:rgba(255,40,80,.9);color:#fff;font:700 22px Poppins;padding:2px 10px;border-radius:6px;white-space:nowrap}
 
 /* picture cards */
-.pcol{position:absolute;right:26px;bottom:140px;width:470px;display:flex;flex-direction:column;gap:14px}
+.pcol{position:absolute;right:calc(26px / var(--size,1));bottom:calc(140px / var(--size,1));width:470px;display:flex;flex-direction:column;gap:14px}
 .pcol.none{display:none}
 .pgh{display:none}
 .pc{height:220px;border-radius:22px;display:flex;gap:16px;padding:12px;--bgv:var(--cardBg);color:var(--cardInk);border:2.5px solid var(--frame);box-shadow:0 8px 22px rgba(60,10,30,.22)}
@@ -181,7 +182,7 @@ if (/[?&]bg=dark/.test(Q) || DEMO || PREVIEW) document.body.classList.add('dark'
 var FIT = /[?&]fit=1/.test(Q) || PREVIEW;
 var GUIDES = /[?&]guides=1/.test(Q);
 
-var DEF = { theme:'royal', tint:1, size:1, motion:'slide', sec:3, banner:'promo',
+var DEF = { theme:'royal', tint:1, size:1, bnSize:1, motion:'slide', sec:3, banner:'promo',
   titles:{ promo:['ការបញ្ចុះតម្លៃពិសេសមកដល់ហើយ!','មានតែនៅក្នុងការឡាយតែប៉ុណ្ណោះ'], normal:['សូមស្វាគមន៍មកកាន់ VH Shop','ទំនិញថ្មីៗ តម្លៃពិសេស រៀងរាល់ថ្ងៃ'] },
   badge:{ t:'សេវាដឹក', p:'1$', s:'ទូទាំងខេត្ត/ក្រុង' } };
 var THEMES = ['royal','rose','ivory','blush','mauve','mocha','classic'];
@@ -224,7 +225,7 @@ function setSettings(d){
   S.titles = Object.assign({}, DEF.titles, d && d.titles || {});
   S.badge  = Object.assign({}, DEF.badge,  d && d.badge  || {});
   if (THEMES.indexOf(S.theme)<0) S.theme='royal';
-  S.tint=Math.max(.4,Math.min(1,+S.tint||1)); S.size=Math.max(.7,Math.min(1,+S.size||1)); S.sec=Math.max(2,Math.min(6,+S.sec||3));
+  S.tint=Math.max(.4,Math.min(1,+S.tint||1)); S.bnSize=Math.max(.6,Math.min(1,+S.bnSize||1)); S.size=Math.max(.7,Math.min(1,+S.size||1)); S.sec=Math.max(2,Math.min(6,+S.sec||3));
   rerender();
 }
 var db=null, kv=null;
@@ -262,12 +263,27 @@ function loadImgs(c){
 }
 
 /* ---------- cards from data ---------- */
+/* photos whose colour is sold out on Vrich are left out (rows/sold come from the extension: send + Refresh stock).
+   A photo with no name, a size like 500g, or a colour Vrich doesn't list is always kept. If nothing is left, all photos show. */
+function words(s){ return String(s||'').replace(/[:：,،.\/|]/g,' ').trim().split(/\s+/).filter(function(w){ return w && !SIZE_RE.test(w); }); }
+function inStockPhotos(photos, it){
+  if (!it || (!it.rows && !it.sold)) return photos;
+  var inS={}, known={};
+  (it.rows||[]).forEach(function(r){ words(r).forEach(function(w){ inS[w]=known[w]=1; }); });
+  (it.sold||[]).forEach(function(r){ words(r).forEach(function(w){ known[w]=1; }); });
+  var keep = photos.filter(function(p){
+    var ws = words(p.v); if (!ws.length) return true;
+    if (!ws.some(function(w){ return known[w]; })) return true;
+    return ws.some(function(w){ return inS[w]; });
+  });
+  return keep.length ? keep : photos;
+}
 function txtOf(c){ var t=TXT[c]; return t ? {price:t[0], label:t[1], rows:t[2]||[]} : null; }
 function picCardsData(){
   var out=[], asText=[];
   PICS.slice(0,3).forEach(function(it){
     var c=String(it.code).toUpperCase(), r=REC[c], t=txtOf(c);
-    var slides = r && r.photos ? r.photos.map(function(p){ return {src:IMGS[c+':'+p.id], v:p.v}; }).filter(function(s){ return s.src; }) : [];
+    var slides = r && r.photos ? inStockPhotos(r.photos, it).map(function(p){ return {src:IMGS[c+':'+p.id], v:p.v}; }).filter(function(s){ return s.src; }) : [];
     var label = it.label || (r&&r.desc) || (t&&t.label) || '';
     var price = it.price || (r&&r.price) || (t&&t.price) || '';
     if (!slides.length) {
@@ -306,14 +322,14 @@ function footSVG(t){
 function bannerHtml(){
   var promo = S.banner!=='normal', ti = (promo ? S.titles.promo : S.titles.normal) || ['',''];
   var b=S.badge;
-  return '<div class="bn">'+bannerSVG(S.theme)+
+  return '<div class="bn">'+bannerSVG(S.theme)+'<div class="bnc">'+
     '<div class="live"><b>LIVE</b><span>FROM</span></div>'+
     '<div class="logo"><div class="vh">VH</div><div class="shop">Shop</div></div><div class="div"></div>'+
     (promo
       ? '<div class="head"><div class="l1">'+esc(ti[0])+'</div>'+(ti[1]?'<div class="l2">'+esc(ti[1])+'</div>':'')+'</div>'+
         '<div class="badge">'+(b.t?'<div class="t">'+esc(b.t)+'</div>':'')+'<div class="p">'+esc(b.p)+'</div>'+(b.s?'<div class="s">'+esc(b.s)+'</div>':'')+'</div>'
       : '<div class="head wide"><div class="l1">'+esc(ti[0])+'</div>'+(ti[1]?'<div class="l2">'+esc(ti[1])+'</div>':'')+'</div>')+
-    '</div>';
+    '</div></div>';
 }
 function rowHtml(r){
   var toks=String(r).trim().split(/\s+/);
@@ -348,7 +364,7 @@ function render(){
   CUR.pics=pd.pics;
   var st=document.getElementById('stage');
   st.className='t-'+S.theme+(S.tint<1?' tinted':'');
-  st.style.setProperty('--tint',S.tint); st.style.setProperty('--size',S.size);
+  st.style.setProperty('--tint',S.tint); st.style.setProperty('--size',S.size); st.style.setProperty('--bn',S.bnSize);
   document.getElementById('ov').innerHTML = bannerHtml()+
     '<div class="tcol">'+texts.map(textCardHtml).join('')+'</div>'+
     '<div class="pcol'+(pd.pics.length?'':' none')+'"><div class="pgh">'+ICONS.bag+'ផលិតផលពិសេស</div>'+pd.pics.map(picCardHtml).join('')+'</div>'+

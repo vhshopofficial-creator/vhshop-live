@@ -90,6 +90,14 @@
   .drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
   .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
   .chip{height:36px;border-radius:999px;border:1px solid var(--acc);background:transparent;color:var(--text);font-size:15px;padding:0 14px}
+  .vcinfo{font-size:14px;border-radius:10px;padding:8px 12px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+  .vcinfo.ok{background:var(--okBg);color:var(--okText)}.vcinfo.warn{background:var(--warnBg);color:var(--warnText)}
+  .vcinfo button{height:32px;border-radius:8px;border:1px solid currentColor;background:transparent;color:inherit;font-size:13px;font-weight:600;padding:0 10px}
+  .ph .ms{font-size:12px;font-weight:700;min-height:16px}.ph .ms.ok{color:#2E9E68}.ph .ms.bad{color:#E0A000}.ph .ms.none{color:var(--sub)}
+  .ph.badv{border-color:#E0A000}
+  .check{display:none;border-radius:12px;padding:12px 14px;background:var(--warnBg);color:var(--warnText);font-size:15px;flex-direction:column;gap:8px}
+  .check.show{display:flex}.check ul{margin:0;padding-left:20px}
+  .check .row button{height:44px;border-radius:10px;font-size:15px;font-weight:700;padding:0 18px}
   .chip.used{border-color:var(--line);background:var(--chip);color:var(--sub);text-decoration:line-through}
   .actions{display:flex;gap:10px;flex-wrap:wrap}
   .bigbtn{display:flex;align-items:center;justify-content:center;height:54px;border-radius:12px;font-size:17px;font-weight:700;padding:0 24px;border:1px solid var(--btn);background:transparent;color:var(--text)}
@@ -125,6 +133,7 @@
 </head>
 <body>
 <datalist id="labels"></datalist>
+<datalist id="vcList"></datalist>
 <div class="wrap">
 
   <div class="card bar">
@@ -152,6 +161,7 @@
             <button type="button" id="useTxt">ប្រើ · Use</button>
           </div>
         </div>
+        <div class="vcinfo hide" id="vcInfo"></div>
         <div class="row" style="align-items:flex-end">
           <label class="lbl">Price ($)
             <input id="price" class="in" inputmode="decimal" placeholder="6.8" autocomplete="off">
@@ -175,7 +185,7 @@
           </div>
         </div>
         <div class="chips hide" id="chipsRow">
-          <span class="hint" style="margin-right:4px">Tap to fill the next empty photo:</span>
+          <span class="hint" style="margin-right:4px" id="chipsHint">Tap to fill the next empty photo:</span>
           <span class="chips" id="chips"></span>
         </div>
         <div class="chips">
@@ -184,6 +194,13 @@
         </div>
       </div>
 
+      <div class="check" id="check">
+        <b>⚠ Some photos are not connected to Vrich stock</b>
+        <ul id="checkList"></ul>
+        <span style="font-size:13px">A photo that is not connected keeps showing on stream even when that colour is sold out.</span>
+        <div class="row"><button type="button" id="checkFix" style="border:1px solid currentColor;background:transparent;color:inherit">Fix the names</button>
+        <button type="button" id="checkSave" style="border:0;background:var(--btn);color:#fff">Save anyway</button></div>
+      </div>
       <div class="actions">
         <button type="button" class="bigbtn" id="saveBtn">3 · Save</button>
         <button type="button" class="bigbtn main" id="saveNextBtn">Save &amp; next code</button>
@@ -374,6 +391,7 @@ $('code').addEventListener('input',function(){
 });
 function onCodeSettled(){
   var c=normCode($('code').value);
+  if(c) fetchVC(c);
   if(!c || c===cur.loadedFrom) return;
   if(INDEX[c] || DEMO && mem[keyCode(c)]){
     if(dirty && cur.photos.some(function(p){return p.isNew;}) && !confirm(c+' was saved before. Open the saved '+c+' and drop the photos you just added?')) return;
@@ -384,6 +402,7 @@ function onCodeSettled(){
   }
 }
 function loadCode(c){
+  fetchVC(c);
   say('ok','Opening '+c+'…',true);
   store.get(keyCode(c)).then(function(r){
     if(!r){ say('warn',c+' is in the list but its record is missing. Save it again.'); return; }
@@ -402,7 +421,7 @@ function fillForm(){
   $('code').value=cur.code; $('price').value=cur.price; $('desc').value=cur.desc;
   var editing=!!cur.loadedFrom;
   $('editTag').classList.toggle('hide',!editing); $('delBtn').classList.toggle('hide',!editing);
-  renderTxt(); renderPhotos(); renderChips(); renderPrefix(); renderPreview();
+  hideCheck(); renderTxt(); renderVC(); renderPhotos(); renderChips(); renderPrefix(); renderPreview();
 }
 $('price').addEventListener('input',function(){ cur.price=$('price').value.trim(); dirty=true; renderPreview(); });
 $('desc').addEventListener('input',function(){ cur.desc=$('desc').value.trim(); dirty=true; renderPreview(); });
@@ -479,10 +498,11 @@ function renderPhotos(){
   cur.photos.forEach(function(p,i){
     var d=document.createElement('div'); d.className='ph'; d.draggable=true; d.dataset.i=i;
     d.innerHTML='<div class="pic"><img alt="photo '+(i+1)+'" src="'+p.src+'"><span class="n">'+(i+1)+'</span>'+(p.isNew?'<span class="new">new</span>':'')+'</div>'+
-      '<input class="in" aria-label="Name of photo '+(i+1)+'" placeholder="colour / 500g" value="'+esc(p.v)+'">'+
+      '<input class="in" list="vcList" aria-label="Name of photo '+(i+1)+'" placeholder="colour / 500g" value="'+esc(p.v)+'"><span class="ms"></span>'+
       '<div class="btns"><button type="button" aria-label="Move earlier">◀</button><button type="button" aria-label="Move later">▶</button><button type="button" class="x" aria-label="Remove photo">✕</button></div>';
     var inp=d.querySelector('input'), b=d.querySelectorAll('button');
-    inp.addEventListener('input',function(){ p.v=inp.value; dirty=true; renderChips(); renderPreview(); });
+    inp.addEventListener('input',function(){ p.v=inp.value; dirty=true; hideCheck(); renderChips(); renderPreview(); paintMatch(d,p); });
+    paintMatch(d,p);
     b[0].onclick=function(){ move(i,i-1); };
     b[1].onclick=function(){ move(i,i+1); };
     b[2].onclick=function(){ var gone=cur.photos.splice(i,1)[0]; if(!gone.isNew) cur.removed.push(gone.id); dirty=true; renderPhotos(); renderChips(); renderPreview(); };
@@ -501,14 +521,16 @@ function move(a,b){
 
 /* ---------------- colour chips + prefix ---------------- */
 function renderChips(){
-  var t=TXT[cur.code], rows=(cur.rows&&cur.rows.length)?cur.rows:(t?t[2]:null), words=colourWords(rows);
+  var t=TXT[cur.code], rows=(cur.rows&&cur.rows.length)?cur.rows:(t?t[2]:null), vc=vcOf(cur.code);
+  var words = vc && vc.colors.length ? vc.colors.slice() : colourWords(rows);
+  $('chipsHint').textContent = vc && vc.colors.length ? 'Colours on Vrich · tap to fill the next empty photo:' : 'Colours from txt (not checked with Vrich) · tap to fill:';
   $('chipsRow').classList.toggle('hide',!words.length);
   var used=cur.photos.map(function(p){ return String(p.v||'').trim(); });
   var box=$('chips'); box.innerHTML='';
   words.forEach(function(w){
     var b=document.createElement('button'); b.type='button'; b.className='chip'+(used.indexOf(w)>=0?' used':''); b.textContent=w;
     b.onclick=function(){
-      for(var i=0;i<cur.photos.length;i++){ if(!String(cur.photos[i].v||'').trim()){ cur.photos[i].v=w; dirty=true; renderPhotos(); renderChips(); renderPreview(); return; } }
+      for(var i=0;i<cur.photos.length;i++){ if(!String(cur.photos[i].v||'').trim()){ cur.photos[i].v=w; dirty=true; hideCheck(); renderPhotos(); renderChips(); renderPreview(); return; } }
       say('warn', cur.photos.length ? 'Every photo already has a name. Add another photo for '+w+', or type '+w+' into a photo name.' : 'Add the photos first, then tap the colours.');
     };
     box.appendChild(b);
@@ -523,6 +545,64 @@ function renderPrefix(){
     box.appendChild(b);
   });
 }
+
+/* ---------------- Vrich colours (saved by the Chrome extension whenever the code shows on Vrich) ---------------- */
+var VC={};   // CODE -> {colors:[...], at} | null (not seen on Vrich) ; missing = not checked yet
+function keyVC(c){ return 'vhshop_vc:'+c.replace(/\//g,'-'); }
+function vcOf(c){ return VC[c] && VC[c].colors ? VC[c] : null; }
+function fetchVC(c,again){
+  if(!c || (!again && VC.hasOwnProperty(c))) return;
+  VC[c]=undefined;
+  store.get(keyVC(c)).then(function(d){ VC[c]=d&&d.colors&&d.colors.length?d:null; if(cur.code===c){ renderVC(); renderPhotos(); renderChips(); } })
+    .catch(function(){ delete VC[c]; });
+}
+function ago(iso){ var m=Math.floor((Date.now()-new Date(iso).getTime())/60000); if(!(m>=0)) return ''; if(m<2) return 'just now'; if(m<60) return m+' min ago'; if(m<1440) return Math.floor(m/60)+' h ago'; return Math.floor(m/1440)+' days ago'; }
+function renderVC(){
+  var c=cur.code, box=$('vcInfo'), vc=vcOf(c);
+  $('vcList').innerHTML = vc ? vc.colors.map(function(x){ return '<option value="'+esc(x)+'">'; }).join('') : '';
+  if(!c || VC[c]===undefined){ box.className='vcinfo hide'; return; }
+  if(vc){ box.className='vcinfo ok'; box.innerHTML='<span>Colours on Vrich for <b>'+esc(c)+'</b>: <b>'+vc.colors.map(esc).join(' · ')+'</b></span><span style="opacity:.8">seen '+esc(ago(vc.at))+'</span><button type="button" id="vcAgain">↻ check again</button>'; }
+  else { box.className='vcinfo warn'; box.innerHTML='<span><b>'+esc(c)+'</b> has not been seen on Vrich yet, so photos can\'t be checked. Search '+esc(c)+' on the Vrich Sale page (with the VH SHOP extension on), then press</span><button type="button" id="vcAgain">↻ check again</button>'; }
+  $('vcAgain').onclick=function(){ fetchVC(c,true); };
+}
+/* does a photo name match a Vrich colour of this code? */
+function nameWords(v){ return String(v||'').replace(/[:：,،.\/|]/g,' ').trim().split(/\s+/).filter(function(w){ return w && !SIZEW.test(w); }); }
+function matchOf(v,c){
+  v=String(v||'').trim(); if(!v) return 'none';
+  if(UNIT.test(v)) return 'size';
+  var vc=vcOf(c); if(!vc) return 'unknown';
+  var set={}; vc.colors.forEach(function(x){ nameWords(x).forEach(function(w){ set[w]=1; }); });
+  var ws=nameWords(v); if(!ws.length) return 'size';
+  return ws.some(function(w){ return set[w]; }) ? 'ok' : 'bad';
+}
+function paintMatch(d,p){
+  var m=matchOf(p.v,cur.code), el=d.querySelector('.ms');
+  el.className='ms '+(m==='ok'||m==='size'?'ok':(m==='bad'?'bad':'none'));
+  el.textContent = m==='ok'?'✓ connected to Vrich stock':(m==='size'?'✓ size / amount (always shows)':(m==='bad'?'⚠ not a Vrich colour':(m==='none'?'no name':'')));
+  d.classList.toggle('badv',m==='bad');
+}
+function checkPhotos(c){
+  var out=[], vc=vcOf(c);
+  var named=cur.photos.filter(function(p){ var m=matchOf(p.v,c); return m!=='none' && m!=='size'; });
+  if(!vc){
+    if(named.length || cur.photos.length>1) out.push(c+' has not been seen on Vrich yet, so the photo names can\'t be checked. Search '+c+' on the Vrich Sale page with the extension on, then press ↻ check again.');
+    return out;
+  }
+  cur.photos.forEach(function(p,i){
+    var m=matchOf(p.v,c);
+    if(m==='bad') out.push('Photo '+(i+1)+' "'+p.v+'" is not a Vrich colour of '+c+'. Vrich has: '+vc.colors.join(', ')+'.');
+    else if(m==='none' && vc.colors.length>1) out.push('Photo '+(i+1)+' has no colour name.');
+  });
+  return out;
+}
+var checkNext=false;
+function showCheck(issues,next){
+  checkNext=next; $('checkList').innerHTML=issues.map(function(t){ return '<li>'+esc(t)+'</li>'; }).join('');
+  $('check').classList.add('show'); $('check').scrollIntoView({behavior:'smooth',block:'center'});
+}
+function hideCheck(){ $('check').classList.remove('show'); }
+$('checkSave').onclick=function(){ save(checkNext,true); };
+$('checkFix').onclick=function(){ hideCheck(); var bad=document.querySelector('.ph.badv input')||document.querySelector('.ph input'); if(bad) bad.focus(); };
 
 /* ---------------- preview ---------------- */
 var slide=0, slideTimer=setInterval(function(){ slide++; renderPreview(true); },1000);
@@ -548,7 +628,7 @@ $('clearBtn').onclick=function(){
   if(dirty && !confirm('Clear the form? Changes not saved will be lost.')) return;
   cur=blank(); dirty=false; fillForm(); $('code').focus();
 };
-function save(next){
+function save(next,force){
   if(busy) return;
   cur.code=normCode($('code').value); cur.price=$('price').value.trim(); cur.desc=$('desc').value.trim();
   var c=cur.code;
@@ -556,6 +636,8 @@ function save(next){
   if(!/^[A-Z0-9][A-Z0-9\-\/.]{0,23}$/.test(c)){ say('warn','"'+c+'" does not look like a product code. Use letters and numbers only (e.g. T877).'); return; }
   if(!cur.photos.length){ say('warn',c+' has no photo. Add at least one photo. (Codes without photos already show as text cards.)'); return; }
   if(cur.price && !/^\d+(\.\d+)?$/.test(cur.price)){ say('warn','Price should be a number like 6.8'); $('price').focus(); return; }
+  if(!force){ var issues=checkPhotos(c); if(issues.length){ showCheck(issues,next); return; } }
+  hideCheck();
   if(cur.loadedFrom && cur.loadedFrom!==c){ cur.photos.forEach(function(p){ p.isNew=true; }); cur.removed=[]; }
   var t=TXT[c];
   var rec={ code:c, price:cur.price, desc:cur.desc, prefix:cur.prefix, rows: cur.rows || (t?t[2]:[]) || [],
@@ -663,6 +745,7 @@ function loadThumbs(){
 /* ---------------- first paint ---------------- */
 fillForm();
 $('code').focus();
+if(DEMO){ mem['vhshop_vc:D172']=JSON.stringify({code:'D172',colors:['សរ','ក្រហម','ឈូក'],at:new Date().toISOString()}); mem['vhshop_vc:H552']=JSON.stringify({code:'H552',colors:['ខ្មៅ','សរ','ឈូក','ក្រូច','ស្វាយ','បៃតង'],at:new Date().toISOString()}); }
 if(DEMO) say('warn','Practice mode (?demo=1): try anything — nothing is saved to Firebase, and it is gone when you close the tab.',true);
 })();
 </script>
